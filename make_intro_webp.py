@@ -17,9 +17,9 @@ SCENES = [
     ("Combustion", "火炎を、技術で制御する。", "燃焼の安定性と安全性を、現場ごとに設計する。", 4),
     ("Equipment", "装置の細部に、技術が宿る。", "バーナー、配管、制御盤、計器を精密に組み合わせる。", 5),
     ("Engineering", "装置を、現場に合わせて組み上げる。", "図面、組立、検査。用途に合わせて一台ずつ設計する。", 6),
-    ("Environment", "クリーンな生産環境へ。", "排ガス処理・脱臭・省エネを支える技術。", 7),
-    ("Support", "導入後も、現場を止めない。", "点検、更新、改造、トラブル対応まで支える。", 5),
-    ("Sunray Reinetsu", "燃焼技術で、産業と環境の未来を支える。", "サンレー冷熱株式会社", 3),
+    ("Environment", "クリーンな生産環境へ。", "排ガス処理・脱臭・省エネを支える技術。", 5),
+    ("Support", "導入後も、現場を止めない。", "点検、更新、改造、トラブル対応まで支える。", 6),
+    ("Sunray Reinetsu", "燃焼技術で、産業と環境の未来を支える。", "サンレー冷熱株式会社", 4),
 ]
 
 
@@ -102,8 +102,10 @@ def load_red_logo() -> Image.Image:
     return logo.resize((target_w, int(logo.height * scale)), Image.Resampling.LANCZOS)
 
 
-def add_logo_scene(logo: Image.Image, progress: float, alpha_ratio: float) -> Image.Image:
-    frame = Image.new("RGB", (WIDTH, HEIGHT), (3, 6, 10))
+def add_logo_scene(logo: Image.Image, background: Image.Image, progress: float, alpha_ratio: float) -> Image.Image:
+    dark = Image.new("RGB", (WIDTH, HEIGHT), (3, 6, 10))
+    bg_amount = min(1.0, progress / 0.28)
+    frame = Image.blend(background, dark, bg_amount)
     overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     draw.rectangle((0, 0, WIDTH, HEIGHT), fill=(0, 0, 0, 72))
@@ -112,7 +114,7 @@ def add_logo_scene(logo: Image.Image, progress: float, alpha_ratio: float) -> Im
         glow = int(48 * max(0, 1 - abs(x - WIDTH * 0.5) / (WIDTH * 0.5)))
         draw.line((x, 0, x, HEIGHT), fill=(18, 31, 43, glow))
 
-    appear = min(1.0, progress / 0.22)
+    appear = min(1.0, max(0.0, progress - 0.18) / 0.26)
     a = int(255 * alpha_ratio * appear)
     x = (WIDTH - logo.width) // 2
     y = int(HEIGHT * 0.38) - logo.height // 2
@@ -163,10 +165,10 @@ def main() -> None:
         for i in range(total):
             if scene_index == len(SCENES) - 1:
                 progress = i / max(1, total - 1)
-                frames.append(add_logo_scene(red_logo, progress, fade_alpha(i, total)))
+                frames.append(add_logo_scene(red_logo, base_images[scene_index - 1], progress, fade_alpha(i, total)))
                 continue
             image = current
-            if scene_index < len(SCENES) - 1 and i >= total - crossfade_frames:
+            if scene_index < len(SCENES) - 2 and i >= total - crossfade_frames:
                 image = blend(current, next_image, (i - (total - crossfade_frames)) / crossfade_frames)
             frames.append(add_overlay(image, kicker, title, body, fade_alpha(i, total)))
 

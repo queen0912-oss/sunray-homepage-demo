@@ -22,9 +22,9 @@ SCENES = [
     ("Combustion", "火炎を、技術で制御する。", "燃焼の安定性と安全性を、現場ごとに設計する。", 4),
     ("Equipment", "装置の細部に、技術が宿る。", "バーナー、配管、制御盤、計器を精密に組み合わせる。", 5),
     ("Engineering", "装置を、現場に合わせて組み上げる。", "図面、組立、検査。用途に合わせて一台ずつ設計する。", 6),
-    ("Environment", "クリーンな生産環境へ。", "排ガス処理・脱臭・省エネを支える技術。", 7),
-    ("Support", "導入後も、現場を止めない。", "点検、更新、改造、トラブル対応まで支える。", 5),
-    ("Sunray Reinetsu", "燃焼技術で、産業と環境の未来を支える。", "サンレー冷熱株式会社", 3),
+    ("Environment", "クリーンな生産環境へ。", "排ガス処理・脱臭・省エネを支える技術。", 5),
+    ("Support", "導入後も、現場を止めない。", "点検、更新、改造、トラブル対応まで支える。", 6),
+    ("Sunray Reinetsu", "燃焼技術で、産業と環境の未来を支える。", "サンレー冷熱株式会社", 4),
 ]
 
 
@@ -131,13 +131,16 @@ def load_red_logo(width: int) -> Image.Image:
 
 def add_logo_scene(
     logo: Image.Image,
+    background: Image.Image,
     progress: float,
     alpha_ratio: float,
     width: int,
     height: int,
     tagline_font: ImageFont.FreeTypeFont,
 ) -> Image.Image:
-    frame = Image.new("RGB", (width, height), (3, 6, 10))
+    dark = Image.new("RGB", (width, height), (3, 6, 10))
+    bg_amount = min(1.0, progress / 0.28)
+    frame = Image.blend(background, dark, bg_amount)
     overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     draw.rectangle((0, 0, width, height), fill=(0, 0, 0, 72))
@@ -145,7 +148,7 @@ def add_logo_scene(
         glow = int(48 * max(0, 1 - abs(x - width * 0.5) / (width * 0.5)))
         draw.line((x, 0, x, height), fill=(18, 31, 43, glow))
 
-    appear = min(1.0, progress / 0.22)
+    appear = min(1.0, max(0.0, progress - 0.18) / 0.26)
     a = int(255 * alpha_ratio * appear)
     x = (width - logo.width) // 2
     y = int(height * 0.38) - logo.height // 2
@@ -201,7 +204,8 @@ def main() -> None:
         for i in range(total):
             if scene_index == len(SCENES) - 1:
                 progress = i / max(1, total - 1)
-                frame = add_logo_scene(red_logo, progress, fade_alpha(i, total), WIDTH, HEIGHT, FONT_TAGLINE)
+                background = cover_resize(images[scene_index - 1], 1.04)
+                frame = add_logo_scene(red_logo, background, progress, fade_alpha(i, total), WIDTH, HEIGHT, FONT_TAGLINE)
                 writer.write(cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2BGR))
                 continue
             progress = i / max(1, total - 1)
@@ -219,7 +223,8 @@ def main() -> None:
             if scene_index == len(SCENES) - 1:
                 progress = i / max(1, total - 1)
                 small_tagline = font(34, True)
-                frame = add_logo_scene(red_logo_small, progress, fade_alpha(int(i * FPS / WEBP_FPS), int(total * FPS / WEBP_FPS)), WEBP_WIDTH, WEBP_HEIGHT, small_tagline)
+                background = cover_resize(images[scene_index - 1], 1.04, WEBP_WIDTH, WEBP_HEIGHT)
+                frame = add_logo_scene(red_logo_small, background, progress, fade_alpha(int(i * FPS / WEBP_FPS), int(total * FPS / WEBP_FPS)), WEBP_WIDTH, WEBP_HEIGHT, small_tagline)
                 webp_frames.append(frame)
                 continue
             progress = i / max(1, total - 1)

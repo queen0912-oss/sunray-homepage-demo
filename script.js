@@ -27,13 +27,13 @@ const scenes = [
     text: "図面、組立、検査。用途に合わせて一台ずつ設計する。"
   },
   {
-    end: 22000,
+    end: 20000,
     kicker: "Environment",
     title: "クリーンな生産環境へ。",
     text: "排ガス処理・脱臭・省エネを支える技術。"
   },
   {
-    end: 27000,
+    end: 26000,
     kicker: "Support",
     title: "導入後も、現場を止めない。",
     text: "点検、更新、改造、トラブル対応まで支える。"
