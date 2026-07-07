@@ -3,12 +3,13 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parent
 STILLS = ROOT / "assets" / "video-stills"
 OUT = ROOT / "assets" / "sunray-promo-intro.webp"
+LOGO = ROOT / "assets" / "sunray-logo.png"
 WIDTH, HEIGHT = 1280, 720
 FPS = 8
 
@@ -38,6 +39,7 @@ FONT_KICKER = font(25, True)
 FONT_TITLE = font(52, True)
 FONT_BODY = font(28)
 FONT_LOGO = font(32, True)
+FONT_TAGLINE = font(34, True)
 
 
 def cover_resize(image: Image.Image) -> Image.Image:
@@ -84,11 +86,73 @@ def blend(a: Image.Image, b: Image.Image, amount: float) -> Image.Image:
     return Image.blend(a, b, amount)
 
 
+def load_red_logo() -> Image.Image:
+    logo = Image.open(LOGO).convert("RGBA")
+    pixels = logo.load()
+    for y in range(logo.height):
+        for x in range(logo.width):
+            r, g, b, a = pixels[x, y]
+            keep = r > 90 and r > g * 1.45 and r > b * 1.45
+            pixels[x, y] = (214, 13, 35, a if keep else 0)
+    bbox = logo.getbbox()
+    if bbox:
+        logo = logo.crop(bbox)
+    target_w = int(WIDTH * 0.58)
+    scale = target_w / logo.width
+    return logo.resize((target_w, int(logo.height * scale)), Image.Resampling.LANCZOS)
+
+
+def add_logo_scene(logo: Image.Image, progress: float, alpha_ratio: float) -> Image.Image:
+    frame = Image.new("RGB", (WIDTH, HEIGHT), (3, 6, 10))
+    overlay = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rectangle((0, 0, WIDTH, HEIGHT), fill=(0, 0, 0, 72))
+
+    for x in range(WIDTH):
+        glow = int(48 * max(0, 1 - abs(x - WIDTH * 0.5) / (WIDTH * 0.5)))
+        draw.line((x, 0, x, HEIGHT), fill=(18, 31, 43, glow))
+
+    appear = min(1.0, progress / 0.22)
+    a = int(255 * alpha_ratio * appear)
+    x = (WIDTH - logo.width) // 2
+    y = int(HEIGHT * 0.38) - logo.height // 2
+
+    logo_layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    logo_base = logo.copy()
+    logo_base.putalpha(logo_base.getchannel("A").point(lambda p: int(p * a / 255)))
+    logo_layer.alpha_composite(logo_base, (x, y))
+
+    mask = Image.new("L", (WIDTH, HEIGHT), 0)
+    mask.paste(logo_base.getchannel("A"), (x, y))
+    glow_mask = mask.filter(ImageFilter.GaussianBlur(8))
+    glow_layer = Image.new("RGBA", (WIDTH, HEIGHT), (255, 54, 62, int(140 * alpha_ratio * appear)))
+    overlay = Image.alpha_composite(overlay, Image.composite(glow_layer, Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0)), glow_mask))
+
+    sweep_center = int((progress * 1.22 - 0.12) * WIDTH)
+    sweep = Image.new("L", (WIDTH, HEIGHT), 0)
+    sweep_draw = ImageDraw.Draw(sweep)
+    sweep_draw.rectangle((sweep_center - 70, 0, sweep_center + 26, HEIGHT), fill=210)
+    sweep = sweep.filter(ImageFilter.GaussianBlur(22))
+    sweep = Image.composite(sweep, Image.new("L", (WIDTH, HEIGHT), 0), mask)
+    sweep_layer = Image.new("RGBA", (WIDTH, HEIGHT), (255, 246, 212, int(235 * alpha_ratio)))
+    overlay = Image.alpha_composite(overlay, logo_layer)
+    overlay = Image.alpha_composite(overlay, Image.composite(sweep_layer, Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0)), sweep))
+
+    draw = ImageDraw.Draw(overlay)
+    tagline = "燃焼技術で、産業と環境の未来を支える。"
+    tag_w = draw.textbbox((0, 0), tagline, font=FONT_TAGLINE)[2]
+    text_shadow(draw, ((WIDTH - tag_w) // 2, int(HEIGHT * 0.58)), tagline, FONT_TAGLINE, (248, 250, 252, int(230 * alpha_ratio * appear)))
+    draw.line((int(WIDTH * 0.34), int(HEIGHT * 0.69), int(WIDTH * 0.66), int(HEIGHT * 0.69)), fill=(214, 13, 35, int(190 * alpha_ratio * appear)), width=3)
+
+    return Image.alpha_composite(frame.convert("RGBA"), overlay).convert("RGB")
+
+
 def main() -> None:
     if OUT.exists():
         OUT.unlink()
 
     base_images = [cover_resize(Image.open(STILLS / f"scene-{i:02}.png").convert("RGB")) for i in range(1, 7)]
+    red_logo = load_red_logo()
     frames: list[Image.Image] = []
 
     for scene_index, (kicker, title, body, seconds) in enumerate(SCENES):
@@ -97,6 +161,10 @@ def main() -> None:
         total = seconds * FPS
         crossfade_frames = FPS
         for i in range(total):
+            if scene_index == len(SCENES) - 1:
+                progress = i / max(1, total - 1)
+                frames.append(add_logo_scene(red_logo, progress, fade_alpha(i, total)))
+                continue
             image = current
             if scene_index < len(SCENES) - 1 and i >= total - crossfade_frames:
                 image = blend(current, next_image, (i - (total - crossfade_frames)) / crossfade_frames)

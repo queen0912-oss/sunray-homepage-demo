@@ -5,13 +5,14 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parent
 STILLS = ROOT / "assets" / "video-stills"
 OUT = ROOT / "assets" / "sunray-promo-demo.mp4"
 OUT_WEBP = ROOT / "assets" / "sunray-promo-demo.webp"
+LOGO = ROOT / "assets" / "sunray-logo.png"
 WIDTH, HEIGHT = 1920, 1080
 FPS = 30
 WEBP_WIDTH, WEBP_HEIGHT = 1280, 720
@@ -43,6 +44,7 @@ FONT_KICKER = font(32, True)
 FONT_TITLE = font(72, True)
 FONT_BODY = font(34)
 FONT_LOGO = font(42, True)
+FONT_TAGLINE = font(48, True)
 
 
 def cover_resize(image: Image.Image, scale: float, width: int = WIDTH, height: int = HEIGHT) -> Image.Image:
@@ -111,6 +113,73 @@ def add_overlay_small(frame: Image.Image, kicker: str, title: str, body: str, sc
     return Image.alpha_composite(frame.convert("RGBA"), overlay).convert("RGB")
 
 
+def load_red_logo(width: int) -> Image.Image:
+    logo = Image.open(LOGO).convert("RGBA")
+    pixels = logo.load()
+    for y in range(logo.height):
+        for x in range(logo.width):
+            r, g, b, a = pixels[x, y]
+            keep = r > 90 and r > g * 1.45 and r > b * 1.45
+            pixels[x, y] = (214, 13, 35, a if keep else 0)
+    bbox = logo.getbbox()
+    if bbox:
+        logo = logo.crop(bbox)
+    target_w = int(width * 0.58)
+    scale = target_w / logo.width
+    return logo.resize((target_w, int(logo.height * scale)), Image.Resampling.LANCZOS)
+
+
+def add_logo_scene(
+    logo: Image.Image,
+    progress: float,
+    alpha_ratio: float,
+    width: int,
+    height: int,
+    tagline_font: ImageFont.FreeTypeFont,
+) -> Image.Image:
+    frame = Image.new("RGB", (width, height), (3, 6, 10))
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rectangle((0, 0, width, height), fill=(0, 0, 0, 72))
+    for x in range(width):
+        glow = int(48 * max(0, 1 - abs(x - width * 0.5) / (width * 0.5)))
+        draw.line((x, 0, x, height), fill=(18, 31, 43, glow))
+
+    appear = min(1.0, progress / 0.22)
+    a = int(255 * alpha_ratio * appear)
+    x = (width - logo.width) // 2
+    y = int(height * 0.38) - logo.height // 2
+
+    logo_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    logo_base = logo.copy()
+    logo_base.putalpha(logo_base.getchannel("A").point(lambda p: int(p * a / 255)))
+    logo_layer.alpha_composite(logo_base, (x, y))
+
+    mask = Image.new("L", (width, height), 0)
+    mask.paste(logo_base.getchannel("A"), (x, y))
+    glow_mask = mask.filter(ImageFilter.GaussianBlur(max(7, width // 150)))
+    glow_layer = Image.new("RGBA", (width, height), (255, 54, 62, int(140 * alpha_ratio * appear)))
+    overlay = Image.alpha_composite(overlay, Image.composite(glow_layer, Image.new("RGBA", (width, height), (0, 0, 0, 0)), glow_mask))
+
+    sweep_center = int((progress * 1.22 - 0.12) * width)
+    sweep = Image.new("L", (width, height), 0)
+    sweep_draw = ImageDraw.Draw(sweep)
+    sweep_draw.rectangle((sweep_center - width // 18, 0, sweep_center + width // 48, height), fill=210)
+    sweep = sweep.filter(ImageFilter.GaussianBlur(max(16, width // 55)))
+    sweep = Image.composite(sweep, Image.new("L", (width, height), 0), mask)
+    sweep_layer = Image.new("RGBA", (width, height), (255, 246, 212, int(235 * alpha_ratio)))
+    overlay = Image.alpha_composite(overlay, logo_layer)
+    overlay = Image.alpha_composite(overlay, Image.composite(sweep_layer, Image.new("RGBA", (width, height), (0, 0, 0, 0)), sweep))
+
+    draw = ImageDraw.Draw(overlay)
+    tagline = "燃焼技術で、産業と環境の未来を支える。"
+    tag_w = draw.textbbox((0, 0), tagline, font=tagline_font)[2]
+    text_shadow(draw, ((width - tag_w) // 2, int(height * 0.58)), tagline, tagline_font, (248, 250, 252, int(230 * alpha_ratio * appear)))
+    draw.line((int(width * 0.34), int(height * 0.69), int(width * 0.66), int(height * 0.69)), fill=(214, 13, 35, int(190 * alpha_ratio * appear)), width=max(3, width // 420))
+
+    return Image.alpha_composite(frame.convert("RGBA"), overlay).convert("RGB")
+
+
 def fade_alpha(frame_index: int, total_frames: int) -> float:
     fade_frames = FPS
     in_alpha = min(1.0, frame_index / fade_frames)
@@ -120,6 +189,8 @@ def fade_alpha(frame_index: int, total_frames: int) -> float:
 
 def main() -> None:
     images = [Image.open(STILLS / f"scene-{i:02}.png").convert("RGB") for i in range(1, 7)]
+    red_logo = load_red_logo(WIDTH)
+    red_logo_small = load_red_logo(WEBP_WIDTH)
     writer = cv2.VideoWriter(str(OUT), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (WIDTH, HEIGHT))
     if not writer.isOpened():
         raise RuntimeError("Could not open MP4 writer")
@@ -128,6 +199,11 @@ def main() -> None:
         image = images[scene_index]
         total = seconds * FPS
         for i in range(total):
+            if scene_index == len(SCENES) - 1:
+                progress = i / max(1, total - 1)
+                frame = add_logo_scene(red_logo, progress, fade_alpha(i, total), WIDTH, HEIGHT, FONT_TAGLINE)
+                writer.write(cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2BGR))
+                continue
             progress = i / max(1, total - 1)
             scale = 1.035 + progress * 0.055
             frame = cover_resize(image, scale)
@@ -140,6 +216,12 @@ def main() -> None:
         image = images[scene_index]
         total = seconds * WEBP_FPS
         for i in range(total):
+            if scene_index == len(SCENES) - 1:
+                progress = i / max(1, total - 1)
+                small_tagline = font(34, True)
+                frame = add_logo_scene(red_logo_small, progress, fade_alpha(int(i * FPS / WEBP_FPS), int(total * FPS / WEBP_FPS)), WEBP_WIDTH, WEBP_HEIGHT, small_tagline)
+                webp_frames.append(frame)
+                continue
             progress = i / max(1, total - 1)
             scale = 1.035 + progress * 0.055
             frame = cover_resize(image, scale, WEBP_WIDTH, WEBP_HEIGHT)
